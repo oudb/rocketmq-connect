@@ -29,6 +29,7 @@ public class KafkaRocketmqSourceTask extends SourceTask {
     private org.apache.kafka.connect.source.SourceTask kafkaSourceTask;
 
     private ClassLoader classLoader;
+    private Thread workerTaskThread;
 
     private Converter keyConverter;
     private Converter valueConverter;
@@ -37,7 +38,6 @@ public class KafkaRocketmqSourceTask extends SourceTask {
 
     @Override
     public List<ConnectRecord> poll() throws InterruptedException {
-
         List<SourceRecord>  sourceRecords =  this.kafkaSourceTask.poll();
 
         if(sourceRecords == null){
@@ -59,15 +59,13 @@ public class KafkaRocketmqSourceTask extends SourceTask {
         Plugins kafkaPlugins = KafkaPluginsUtil.getPlugins(Collections.singletonMap(KafkaPluginsUtil.PLUGIN_PATH, kafkaTaskProps.get(ConfigDefine.PLUGIN_PATH)));
         String connectorClass = kafkaTaskProps.get(ConfigDefine.CONNECTOR_CLASS);
         ClassLoader connectorLoader = kafkaPlugins.delegatingLoader().connectorLoader(connectorClass);
+        this.workerTaskThread = Thread.currentThread();
         this.classLoader = Plugins.compareAndSwapLoaders(connectorLoader);
         try {
-
             TaskConfig taskConfig = new TaskConfig(kafkaTaskProps);
             Class<? extends Task> taskClass = taskConfig.getClass(ConfigDefine.TASK_CLASS).asSubclass(Task.class);
             this.kafkaSourceTask = (org.apache.kafka.connect.source.SourceTask)kafkaPlugins.newTask(taskClass);
-
             initConverter(kafkaPlugins, kafkaTaskProps);
-
             this.kafkaSourceTask.initialize(new RocketmqKafkaSourceTaskContext(sourceTaskContext));
             this.kafkaSourceTask.start(kafkaTaskProps);
         } catch (Throwable e){
@@ -77,7 +75,6 @@ public class KafkaRocketmqSourceTask extends SourceTask {
     }
 
     private void initConverter(Plugins plugins, Map<String, String> taskProps){
-
         ConfigDef converterConfigDef = new ConfigDef()
                 .define(ConfigDefine.KEY_CONVERTER, ConfigDef.Type.CLASS, null, ConfigDef.Importance.LOW, "")
                 .define(ConfigDefine.VALUE_CONVERTER, ConfigDef.Type.CLASS, null, ConfigDef.Importance.LOW, "")
@@ -138,9 +135,10 @@ public class KafkaRocketmqSourceTask extends SourceTask {
     }
 
     private void recoverClassLoader(){
-        if(this.classLoader != null){
+        if(this.classLoader != null && this.workerTaskThread == Thread.currentThread()){
             Plugins.compareAndSwapLoaders(this.classLoader);
             this.classLoader = null;
+            this.workerTaskThread = null;
         }
     }
 

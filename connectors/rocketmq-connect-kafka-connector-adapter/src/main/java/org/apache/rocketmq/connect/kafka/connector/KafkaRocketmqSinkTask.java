@@ -38,6 +38,7 @@ public class KafkaRocketmqSinkTask extends SinkTask {
 
     private org.apache.kafka.connect.sink.SinkTask kafkaSinkTask;
     private ClassLoader classLoader;
+    private Thread workerTaskThread;
 
     private Converter keyConverter;
     private Converter valueConverter;
@@ -96,6 +97,7 @@ public class KafkaRocketmqSinkTask extends SinkTask {
         Plugins kafkaPlugins =  KafkaPluginsUtil.getPlugins(Collections.singletonMap(KafkaPluginsUtil.PLUGIN_PATH, kafkaTaskProps.get(ConfigDefine.PLUGIN_PATH)));
         String connectorClass = kafkaTaskProps.get(ConfigDefine.CONNECTOR_CLASS);
         ClassLoader connectorLoader = kafkaPlugins.delegatingLoader().connectorLoader(connectorClass);
+        this.workerTaskThread = Thread.currentThread();
         this.classLoader = Plugins.compareAndSwapLoaders(connectorLoader);
         try {
             TaskConfig taskConfig = new TaskConfig(kafkaTaskProps);
@@ -121,9 +123,10 @@ public class KafkaRocketmqSinkTask extends SinkTask {
 
 
     private void recoverClassLoader(){
-        if(this.classLoader != null){
+        if(this.classLoader != null && this.workerTaskThread == Thread.currentThread()){
             Plugins.compareAndSwapLoaders(this.classLoader);
             this.classLoader = null;
+            this.workerTaskThread = null;
         }
     }
 
